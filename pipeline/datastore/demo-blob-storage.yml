@@ -1,0 +1,8 @@
+$schema: https://azuremlschemas.azureedge.net/latest/azureBlob.schema.json
+name: demo_blob_storage
+type: azure_blob
+description: Demo Datastore
+account_name: mlopsdemodatalake
+container_name: mnist-dataset
+credentials:
+  account_key: XXXxxxXXXxXXXXxxXXXXXxXXXXXxXxxXxXXXxXXXxXXxxxXXxxXXXxXxXXXxxXxxXXXXxxxxxXXxxxxxxXXXxXXX

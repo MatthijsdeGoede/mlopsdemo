@@ -1,0 +1,14 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+code: ../scripts
+command: >-
+  python link_script.py 
+  --model_name ${{inputs.model_name}}
+  --train_ds ${{inputs.train_ds}}
+  --test_ds ${{inputs.test_ds}}
+inputs: 
+  model_name: demo-sklearn-mnist
+  train_ds: demo_train_set_mnist
+  test_ds: demo_test_set_mnist
+environment: azureml:myenv@latest
+compute: azureml:demo-cpu-cluster
+experiment_name: demo-sklearn-mnist

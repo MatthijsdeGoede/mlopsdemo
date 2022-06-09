@@ -1,0 +1,3 @@
+$schema: https://azuremlschemas.azureedge.net/latest/model.schema.json
+name: demo-sklearn-mnist
+description: LogisticRegression Model for the MNIST Dataset created with Sklearn.

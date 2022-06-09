@@ -1,0 +1,153 @@
+# Starter pipeline
+# Start with a minimal pipeline that you can customize to build and deploy your code.
+# Add steps that build, run tests, deploy, and more:
+# https://aka.ms/yaml
+
+trigger:
+  - main
+  
+pool:
+  vmImage: ubuntu-latest
+  
+variables:
+  - name: workspace
+    value: mlopsdemows
+  - name: resourceGroup
+    value: demo
+  - name: storageAccount
+    value: mlopsdemodatalake
+  - name: storageContainer
+    value: mnist-dataset
+  - name: keyVault 
+    value: mlopsdemows3775522951
+  - name: containerRegistry
+    value: mlopsdemosws8765456765
+
+jobs:
+  - job: Train 
+    steps:
+
+    - task: AzureKeyVault@2
+      displayName: Retrieve Secrets from Key Vault
+      inputs:
+        azureSubscription: access_subscription_max
+        KeyVaultName: $(keyVault)
+        SecretsFilter: storage-key
+        RunAsPreJob: true
+
+    - task: AzureCLI@2
+      displayName: Install Azure CLI ML extension
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptLocation: inlineScript
+        scriptType: bash
+        inlineScript: |
+          az extension add --name ml --upgrade
+          az configure --defaults group=$(resourceGroup) workspace=$(workspace)
+
+    - task: PowerShell@2
+      inputs:
+        targetType: inline
+        script: |
+          Install-Module -Name Az.Storage -Scope CurrentUser -Force 
+      displayName: Install PowerShell Modules
+      
+    - bash: |
+        echo "##vso[task.setvariable variable=runDataPath;]$(date +%Y)/$(date +%b)/Day$(date +%d)/$(date +%s)"
+      displayName: Generate unique Data Folder
+
+    - task: PowerShell@2
+      inputs:
+        targetType: inline
+        script: |
+          $Context = New-AzStorageContext -StorageAccountName $(storageAccount) -StorageAccountKey $(storage-key)
+          Start-AzStorageBlobCopy -AbsoluteUri "https://mlopsdemodatalake.blob.core.windows.net/mnist-dataset/mnist_train.csv" -DestContainer $(storageContainer) -DestBlob "/$(runDataPath)/mnist_train.csv" -Context $context -DestContext $context
+          Start-AzStorageBlobCopy -AbsoluteUri "https://mlopsdemodatalake.blob.core.windows.net/mnist-dataset/mnist_test.csv" -DestContainer $(storageContainer) -DestBlob "/$(runDataPath)/mnist_test.csv" -Context $context -DestContext $context
+      displayName: Copy Blobs to run folder
+   
+    - task: AzureCLI@2
+      displayName: Copy Blobs to run folder
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |         
+          az storage blob copy start --account-name $(storageAccount) --account-key $(storage-key)  --destination-blob $(runDataPath)/mnist_train.csv --destination-container $(storageContainer) --source-uri https://mlopsdemodatalake.blob.core.windows.net/mnist-dataset/mnist_train.csv --requires-sync true
+          az storage blob copy start --account-name $(storageAccount) --account-key $(storage-key)  --destination-blob $(runDataPath)/mnist_test.csv --destination-container $(storageContainer) --source-uri https://mlopsdemodatalake.blob.core.windows.net/mnist-dataset/mnist_test.csv --requires-sync true
+
+    - task: AzureCLI@2
+      displayName: Create Compute Cluster
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: az ml compute create --file pipeline/compute/demo-cpu-cluster.yml
+
+    - task: AzureCLI@2
+      displayName: Create Virtual Environment
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: az ml environment create --file pipeline/environment/myenv.yml
+
+    - task: AzureCLI@2
+      displayName: Create Datastore
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: az ml datastore create --name demo_blob_storage --file pipeline/datastore/demo-blob-storage.yml --set credentials.account_key=$(storage-key)
+        
+    - task: AzureCLI@2
+      displayName: Create Datasets
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az ml dataset create --name demo_train_set_mnist --paths file:azureml://datastores/demo_blob_storage/paths/$(runDataPath)/mnist_train.csv
+          az ml dataset create --name demo_test_set_mnist --paths file:azureml://datastores/demo_blob_storage/paths/$(runDataPath)/mnist_test.csv
+        
+    - bash: |
+        echo "##vso[task.setvariable variable=runID;]demo-sklearn-train-$(date +%s)"
+      displayName: Generate unique Run ID
+    
+    - task: AzureCLI@2
+      displayName: Run Training Job
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: scriptPath
+        scriptPath: pipeline/jobs/run_train.sh
+        arguments: $(runId) azureml://datastores/demo_blob_storage/paths/$(runDataPath)/
+    
+    - task: AzureCLI@2
+      displayName: Create Model
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: az ml model create --file pipeline/model/demo-sklearn-mnist.yml --path runs:/$(runID)/outputs
+
+    - task: AzureCLI@2
+      displayName: Link Datasets to Model
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          az ml job create --name $(runId)-link --file pipeline/jobs/link.yml
+          az ml job stream --name $(runId)-link
+
+    - task: AzureCLI@2
+      displayName: Create ACR Container
+      inputs:
+        azureSubscription: access_subscription_max
+        scriptType: bash
+        scriptLocation: inlineScript
+        inlineScript: |
+          VERSION=$(az ml model list --name demo-sklearn-mnist --resource-group $(resourceGroup) --workspace-name $(workspace) --query "reverse(sort_by([].{version:version}, &version)) | [0]" --output tsv)
+          az ml model download --name demo-sklearn-mnist --resource-group $(resourceGroup) --workspace-name $(workspace) --version $VERSION --download-path pipeline/container
+          az acr login --name $(containerRegistry)
+          az acr build --image demo-sklearn-mnist:$VERSION --registry $(containerRegistry) --file pipeline/container/Dockerfile .

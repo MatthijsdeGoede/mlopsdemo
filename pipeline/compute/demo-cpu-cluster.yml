@@ -1,0 +1,13 @@
+$schema: https://azuremlschemas.azureedge.net/latest/amlCompute.schema.json 
+name: demo-cpu-cluster
+type: amlcompute
+size: STANDARD_D2_V2
+location: 'westeurope'
+min_instances: 0
+max_instances: 4
+idle_time_before_scale_down: 600
+ssh_settings:
+  admin_username: compute-cluster-admin
+  admin_password: compute-cluster-password
+identity:
+    type: system_assigned

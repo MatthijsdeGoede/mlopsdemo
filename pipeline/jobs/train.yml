@@ -1,0 +1,16 @@
+$schema: https://azuremlschemas.azureedge.net/latest/commandJob.schema.json
+code: ../scripts
+command: >-
+  python train_script.py 
+  --train_blob ${{inputs.data_folder}}/mnist_train.csv
+  --test_blob ${{inputs.data_folder}}/mnist_test.csv
+inputs:
+  data_folder: 
+      type: uri_folder
+      path: azureml://datastores/demo_blob_storage/paths/ 
+      mode: ro_mount
+environment: azureml:myenv@latest
+compute: azureml:demo-cpu-cluster
+display_name: demo-sklearn-mnist
+experiment_name: demo-sklearn-mnist
+description: Train a scikit-learn Logistics Regression on the MNIST dataset.

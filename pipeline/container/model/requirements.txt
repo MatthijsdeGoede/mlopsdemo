@@ -1,0 +1,4 @@
+azureml-dataset-runtime[pandas,fuse]
+azureml-defaults
+scikit-learn==0.22.1
+azure-storage-blob
